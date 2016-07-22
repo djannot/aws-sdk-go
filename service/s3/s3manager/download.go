@@ -39,6 +39,9 @@ type Downloader struct {
 
 	// An S3 client to use when performing downloads.
 	S3 s3iface.S3API
+
+	//Optional processing on GetObjectRequest
+	RequestOption func(req *request.Request)
 }
 
 // NewDownloader creates a new Downloader instance to downloads objects from
@@ -112,7 +115,7 @@ func NewDownloaderWithClient(svc s3iface.S3API, options ...func(*Downloader)) *D
 // The w io.WriterAt can be satisfied by an os.File to do multipart concurrent
 // downloads, or in memory []byte wrapper using aws.WriteAtBuffer.
 func (d Downloader) Download(w io.WriterAt, input *s3.GetObjectInput, options ...func(*Downloader)) (n int64, err error) {
-	impl := downloader{w: w, in: input, ctx: d}
+	impl := downloader{w: w, in: input, ctx: d, requestOption: d.RequestOption}
 
 	for _, option := range options {
 		option(&impl.ctx)
@@ -135,6 +138,10 @@ type downloader struct {
 	totalBytes int64
 	written    int64
 	err        error
+
+
+	//Optional processing on GetObjectRequest
+	requestOption func(req *request.Request)
 }
 
 // init initializes the downloader with default options.
@@ -239,6 +246,9 @@ func (d *downloader) downloadChunk(chunk dlchunk) {
 	in.Range = &rng
 
 	req, resp := d.ctx.S3.GetObjectRequest(in)
+	if d.requestOption != nil {
+		req = d.requestOption(req)
+	}
 	req.Handlers.Build.PushBack(request.MakeAddToUserAgentFreeFormHandler("S3Manager"))
 	err := req.Send()
 
